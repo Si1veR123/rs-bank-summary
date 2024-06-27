@@ -5,31 +5,36 @@ use bank_summary::{
             MoneyDirection
         },
         scraper::BarclaysScraper,
-    }, filter::Filter, scraper::Scraper, transaction::Transaction
+    }, scraper::Scraper, transaction::Transaction
 };
 
 use thirtyfour::{
     prelude::*,
-    ChromeCapabilities
+    DesiredCapabilities
 };
-use async_std::task::block_on;
 
-async fn get_transactions<S: Scraper, F: Filter>(driver: &WebDriver, filter: Option<F>) -> WebDriverResult<Vec<Transaction>> {
+async fn get_transactions<S: Scraper>(driver: &WebDriver, filter: Option<S::Filter>) -> WebDriverResult<Vec<Transaction>> {
     S::open_login(driver).await?;
     S::await_login(driver).await?;
     S::open_transactions(driver, filter).await?;
+    std::thread::sleep(std::time::Duration::from_secs(5));
     S::transactions(driver).await
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let barclays_filter = BarclaysFilter::default()
         .with_search(String::from("money"))
         .with_direction(MoneyDirection::In);
 
-    let capabilities = ChromeCapabilities::new();
-    let webdriver = block_on(WebDriver::new("http://localhost:4444/wd/hub/session", capabilities))?;
+    let mut capabilities = DesiredCapabilities::chrome();
+    capabilities.set_binary(r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe")?;
+
+    let webdriver = WebDriver::new("http://localhost:9515/wd/hub/session", capabilities).await?;
     
-    let transactions = block_on(get_transactions::<BarclaysScraper, _>(&webdriver, Some(barclays_filter)));
+    let transactions = get_transactions::<BarclaysScraper>(&webdriver, Some(barclays_filter)).await;
+
+    webdriver.quit().await?;
 
     println!("{:?}", transactions);
 

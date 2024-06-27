@@ -1,39 +1,49 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
 use crate::{
     filter::Filter,
     scraper::Scraper,
-    transaction::Transaction
+    transaction::Transaction,
+    barclays::filter::BarclaysFilter
 };
 
 use chrono::NaiveDate;
-use thirtyfour::prelude::*;
+use thirtyfour::{action_chain::ActionChain, common::action::Action, prelude::*};
 
 pub struct BarclaysScraper;
 
 impl Scraper for BarclaysScraper {
+    type Filter = BarclaysFilter;
+
     async fn open_login(driver: &WebDriver) -> WebDriverResult<()> {
         driver.goto("https://bank.barclays.co.uk/olb/authlogin/loginAppContainer.do").await
     }
 
     async fn await_login(driver: &WebDriver) -> WebDriverResult<()> {
-        driver.find(By::Id("Logout")).await.map(|_| ())
+        driver.query(By::Id("Logout"))
+            .wait(Duration::MAX, Duration::from_millis(500))
+            .and_displayed().first().await?;
+
+        Ok(())
     }
 
-    async fn open_transactions<F: Filter>(driver: &WebDriver, filter: Option<F>) -> WebDriverResult<()> {
+    async fn open_transactions(driver: &WebDriver, filter: Option<Self::Filter>) -> WebDriverResult<()> {
         // TODO: Better way to select this?
-        let account_details_button = driver.find(By::Css(".c-account__detail > a")).await?;
+        let account_details_button = driver.find(By::Css(".c-account__detail a")).await?;
         account_details_button.click().await?;
 
-        let open_advanced_search_button = driver.find(By::Id("advancedSearch")).await?;
-        open_advanced_search_button.click().await?;
+        driver.query(By::Id("advancedSearch"))
+            .and_clickable()
+            .first().await?
+            .click().await?;
 
         if let Some(f) = filter {
             f.apply_to_page(driver)?;
         }
 
         let search_button = driver.find(By::Id("advanceSearchSubmitBtn")).await?;
-        search_button.click().await?;
+        // Using click alone has a ElementClickIntercepted error
+        driver.action_chain().click_element(&search_button).perform().await?;
 
         Ok(())
     }
